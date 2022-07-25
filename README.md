@@ -10,7 +10,7 @@ This repo contains source code to demonstrate the pipeline from PubSub to MySQL 
 - Go - `go version go1.17.6 darwin/amd64`
 - Ginkgo - `Ginkgo Version 2.1.3`
 
-## To install dockertest
+## To install dockertest and pstest
 - dockertest - `go get github.com/ory/dockertest/v3`
 - pstest - `go get cloud.google.com/go/pubsub/pstest`
 
