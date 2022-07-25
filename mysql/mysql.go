@@ -9,6 +9,7 @@ package mysql
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/Jeyakaran-tech/pubSubMySQL/types"
@@ -56,7 +57,7 @@ func (r *repository) Up() error {
 			")"
 
 	query2 :=
-		"CREATE TABLE service_severity (" +
+		"CREATE TABLE IF NOT EXISTS service_severity (" +
 			"service_name VARCHAR(100) NOT NULL," +
 			"severity ENUM(\"debug\", \"info\", \"warn\", \"error\", \"fatal\") NOT NULL," +
 			"count INT(4) NOT NULL," +
@@ -95,7 +96,7 @@ func (r *repository) Find() ([]*types.Message, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	rows, err := r.db.QueryContext(ctx, "SELECT id, name, email, phone FROM users")
+	rows, err := r.db.QueryContext(ctx, "SELECT * FROM service_logs")
 	if err != nil {
 		return nil, err
 	}
@@ -125,13 +126,14 @@ func (r *repository) Create(message *types.Message) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	query := "INSERT INTO users (id, name, email, phone) VALUES (?, ?, ?, ?)"
+	query := "INSERT INTO service_logs (service_name, payload, severity, timestamp, created_at) VALUES (?, ?, ?, ?, ?)"
 	stmt, err := r.db.PrepareContext(ctx, query)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 
-	_, err = stmt.ExecContext(ctx, message.ID, message.ServiceName, message.Payload, message.Severity, message.Timestamp)
+	_, err = stmt.ExecContext(ctx, message.ServiceName, message.Payload, message.Severity, time.Now(), message.Timestamp)
+	fmt.Println("Inserted Successfully")
 	return err
 }

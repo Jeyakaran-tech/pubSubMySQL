@@ -1,14 +1,21 @@
 package mysql_test
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"testing"
 	"time"
 
+	"cloud.google.com/go/pubsub"
+	"cloud.google.com/go/pubsub/pstest"
 	"github.com/Jeyakaran-tech/pubSubMySQL/mysql"
 	r "github.com/Jeyakaran-tech/pubSubMySQL/types"
+	"google.golang.org/api/option"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/ory/dockertest/v3"
 	"github.com/ory/dockertest/v3/docker"
@@ -18,15 +25,13 @@ import (
 var (
 	repo r.Repository
 )
-
-var u = &r.Message{
+var message = &r.Message{
 	ID:          1,
 	ServiceName: "Immediate payments",
 	Payload:     "multiple",
 	Severity:    "info",
 	Timestamp:   time.Now(),
 }
-
 var (
 	user     = "docker"
 	password = "secret"
@@ -39,6 +44,49 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	ctx := context.Background()
+	srv := pstest.NewServer()
+	defer srv.Close()
+	conn, err := grpc.Dial(srv.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		panic(err)
+	}
+	defer conn.Close()
+	pubSubClient, err := pubsub.NewClient(ctx, "LMS", option.WithGRPCConn(conn))
+	if err != nil {
+		panic(err)
+	}
+	defer pubSubClient.Close()
+
+	topic, err := pubSubClient.CreateTopic(ctx, "Pipeline-MySQL")
+	if err != nil {
+		panic(err)
+	}
+
+	bytes, err := json.Marshal(message)
+	if err != nil {
+		panic(err)
+	}
+	topic.Publish(ctx, &pubsub.Message{Data: bytes})
+
+	sub, createSubErr := pubSubClient.CreateSubscription(context.Background(), "LMS_Subscription",
+		pubsub.SubscriptionConfig{Topic: topic})
+
+	if createSubErr != nil {
+		panic(createSubErr)
+	}
+
+	receiveErr := sub.Receive(ctx, func(ctx context.Context, m *pubsub.Message) {
+		fmt.Println(string(m.Data))
+		fmt.Println("Data Received")
+		m.Ack() // Acknowledge that we've consumed the message.
+	})
+	if receiveErr != nil {
+		log.Println(receiveErr)
+	}
+	cfg, _ := sub.Config(ctx)
+	sub.ReceiveSettings.MaxExtension = cfg.AckDeadline
+
 	pool, err := dockertest.NewPool("")
 	if err != nil {
 		log.Fatalf("Could not connect to docker: %s", err)
@@ -93,7 +141,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestCreate(t *testing.T) {
-	err := repo.Create(u)
+	err := repo.Create(message)
 	assert.NoError(t, err)
 }
 
@@ -102,4 +150,27 @@ func TestFind(t *testing.T) {
 	assert.NotEmpty(t, users)
 	assert.NoError(t, err)
 	assert.NotEqual(t, 0, len(users))
+}
+
+func receive(ctx context.Context, psResult *pubsub.PublishResult, pubSubClient *pubsub.Client, topic *pubsub.Topic) {
+
+	sub, createSubErr := pubSubClient.CreateSubscription(context.Background(), "LMS_Subscription",
+		pubsub.SubscriptionConfig{Topic: topic})
+
+	if createSubErr != nil {
+		panic(createSubErr)
+	}
+
+	receiveErr := sub.Receive(ctx, func(ctx context.Context, m *pubsub.Message) {
+		fmt.Println(string(m.Data))
+		fmt.Println("Data Received")
+		m.Ack() // Acknowledge that we've consumed the message.
+		// context.CancelFunc()
+	})
+	if receiveErr != nil {
+		log.Println(receiveErr)
+	}
+	cfg, _ := sub.Config(ctx)
+
+	sub.ReceiveSettings.MaxExtension = cfg.AckDeadline
 }
